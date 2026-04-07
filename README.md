@@ -1,0 +1,2 @@
+# Lexi
+Lexi AI

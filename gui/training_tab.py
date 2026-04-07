@@ -191,7 +191,7 @@ class TrainingTab(ttk.Frame):
             ))
             self.after(0, lambda: self.progress_var.set(epoch / epochs * 100))
             self.after(0, lambda: self.progress_label.configure(text=f"Epoch: {epoch} / {epochs}"))
-            self.after(0, lambda: self.app.tabs["chat"].output_area)  # trigger refresh
+
 
         def on_batch_end(batch_idx, total):
             pass  # Could update sub-progress here

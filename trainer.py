@@ -206,8 +206,9 @@ class Trainer:
         self._log(f"Loaded checkpoint: {checkpoint_path} (epoch {ckpt.get('epoch', '?')})")
 
         # Use lower learning rate for fine-tuning
+        import copy
         ft_lr = self.config.get("learning_rate", 3e-4) * 0.1
-        self.config = dict(self.config)
+        self.config = copy.deepcopy(self.config)
         self.config["learning_rate"] = ft_lr
 
         self._log(f"Fine-tuning with lr={ft_lr}")

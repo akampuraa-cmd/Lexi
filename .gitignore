@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Runtime generated files
+training_data.txt
+training_log.txt
+thanos_tokenizer.json
+checkpoints/*.pt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

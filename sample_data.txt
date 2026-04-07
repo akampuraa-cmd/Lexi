@@ -1,0 +1,24 @@
+The history of artificial intelligence dates back to the mid-20th century, when pioneers like Alan Turing and John McCarthy laid the groundwork for machines that could simulate human reasoning.
+Turing's famous 1950 paper asked the question, "Can machines think?" and proposed what is now known as the Turing Test, a measure of a machine's ability to exhibit intelligent behavior indistinguishable from that of a human.
+
+The field grew slowly at first, hampered by the limited computational power of early computers and the optimistic but ultimately difficult problems researchers chose to tackle.
+During the 1980s, expert systems became popular, encoding human knowledge into rule-based programs that could reason about specific domains.
+However, these systems were brittle and required massive manual effort to maintain.
+
+The rise of machine learning in the 1990s and 2000s shifted the paradigm.
+Instead of encoding rules by hand, researchers began building systems that could learn patterns from data.
+Neural networks, inspired loosely by the structure of the human brain, became increasingly powerful tools.
+
+Deep learning — the use of many-layered neural networks trained on large datasets — revolutionized AI starting around 2012, when convolutional networks achieved dramatic improvements in image recognition.
+This success inspired researchers to apply similar architectures to natural language, culminating in transformer-based models like GPT and BERT.
+
+Today, large language models can write code, compose essays, answer questions, and engage in conversations with remarkable fluency.
+Yet despite their power, these models lack true understanding, consciousness, or common sense in the way humans experience the world.
+
+The future of AI remains open: researchers continue to explore reasoning, planning, memory, and alignment — ensuring that increasingly capable systems remain safe and beneficial for humanity.
+Language is the fabric of human thought. Through words, we share ideas, build cultures, and pass knowledge across generations.
+A model that truly understands language would need to grasp not just words, but context, intent, emotion, and the vast background of human experience.
+
+Training such a model from scratch is a journey into the very structure of intelligence.
+Every token the model learns to predict is a small step toward capturing the patterns that make language meaningful.
+With enough data, computation, and careful design, even a small model can begin to reflect the richness of human expression.

@@ -53,7 +53,7 @@ python main.py
 ## Requirements
 
 - Python 3.10+
-- PyTorch ≥ 2.0
+- PyTorch ≥ 2.6
 - PyQt6 ≥ 6.5
 - tiktoken
 - beautifulsoup4

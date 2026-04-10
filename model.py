@@ -63,10 +63,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# ---------------------------------------------------------------------------
-# Dynamic device configuration – auto-detect CUDA at import time.
-# ---------------------------------------------------------------------------
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+from device_manager import DEVICE  # noqa: F401  — re-exported for back-compat
 
 
 # ---------------------------------------------------------------------------

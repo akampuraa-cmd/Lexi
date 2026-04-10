@@ -75,7 +75,7 @@ def _detect_cuda_devices() -> list[DeviceInfo]:
             name=props.name,
             backend=backend_label,
             index=i,
-            total_memory_mb=props.total_mem // (1024 * 1024),
+            total_memory_mb=props.total_memory // (1024 * 1024),
             driver_version=driver,
         ))
     return devices

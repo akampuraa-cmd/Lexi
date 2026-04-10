@@ -137,7 +137,7 @@ class LexiMainWindow(QMainWindow):
 
         # Shared state -------------------------------------------------------
         self.corpus: str = ""               # accumulated training text
-        self._files_loaded: int = 0         # number of data files loaded
+        self._data_sources_loaded: int = 0  # number of data sources loaded
         self.trainer: Trainer | None = None
         self.generator: Generator | None = None
         self._train_worker: TrainWorker | None = None
@@ -283,7 +283,7 @@ class LexiMainWindow(QMainWindow):
                 loaded = load_file(p)
                 if loaded.text:
                     self.corpus += " " + loaded.text
-                    self._files_loaded += 1
+                    self._data_sources_loaded += 1
                     self.data_preview.appendPlainText(
                         f"--- {os.path.basename(p)} [{loaded.format}] "
                         f"({loaded.num_samples} samples) ---\n"
@@ -307,7 +307,7 @@ class LexiMainWindow(QMainWindow):
             cleaned = DataCleaner.clean(text)
             self.corpus += " " + cleaned
             self.corpus = self.corpus.strip()
-            self._files_loaded += 1
+            self._data_sources_loaded += 1
             self.data_preview.appendPlainText(
                 f"--- [pasted text] ---\n{cleaned[:500]}…\n"
             )
@@ -323,14 +323,14 @@ class LexiMainWindow(QMainWindow):
         )
         if reply == QMessageBox.StandardButton.Yes:
             self.corpus = ""
-            self._files_loaded = 0
+            self._data_sources_loaded = 0
             self.data_preview.clear()
             self._update_corpus_label()
 
     def _update_corpus_label(self) -> None:
         self.corpus_label.setText(
             f"Corpus: {len(self.corpus):,} characters | "
-            f"{self._files_loaded} file(s) loaded"
+            f"{self._data_sources_loaded} source(s) loaded"
         )
 
     # ====================================================================
@@ -396,7 +396,7 @@ class LexiMainWindow(QMainWindow):
 
         self.corpus += " " + text
         self.corpus = self.corpus.strip()
-        self._files_loaded += 1
+        self._data_sources_loaded += 1
         self._update_corpus_label()
         QMessageBox.information(
             self, "Added", "Scraped text has been added to the training corpus."

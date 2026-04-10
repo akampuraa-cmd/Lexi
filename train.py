@@ -171,6 +171,9 @@ class Trainer:
 
     # ----- public API -------------------------------------------------------
 
+    # Minimum dataset size to justify a train/val split.
+    _MIN_SPLIT_SIZE: int = 10
+
     def prepare_dataset(
         self, corpus: str
     ) -> tuple[DataLoader, DataLoader | None]:
@@ -183,7 +186,7 @@ class Trainer:
         full_ds = TextDataset(token_ids, self.train_config.context_length)
 
         val_loader = None
-        if self.train_config.val_split > 0 and len(full_ds) >= 10:
+        if self.train_config.val_split > 0 and len(full_ds) >= self._MIN_SPLIT_SIZE:
             val_size = max(1, int(len(full_ds) * self.train_config.val_split))
             train_size = len(full_ds) - val_size
             train_ds, val_ds = random_split(full_ds, [train_size, val_size])
@@ -270,8 +273,10 @@ class Trainer:
                 xb, yb = xb.to(DEVICE), yb.to(DEVICE)
 
                 _, loss = self.model(xb, yb)
-                loss = loss / accum  # scale for accumulation
-                loss.backward()
+                # Store unscaled loss for logging before accumulation scaling
+                unscaled_loss = loss.item()
+                scaled_loss = loss / accum  # scale for accumulation
+                scaled_loss.backward()
 
                 if step % accum == 0 or step == len(loader):
                     # LR scheduling
@@ -292,14 +297,14 @@ class Trainer:
                     self.optimizer.step()
                     self.optimizer.zero_grad(set_to_none=True)
 
-                epoch_loss += loss.item() * accum
+                epoch_loss += unscaled_loss
                 global_step += 1
 
                 if step % self.train_config.log_interval == 0:
                     self.log_fn(
                         f"  Epoch {epoch}/{self.train_config.epochs} "
                         f"Step {step}/{len(loader)} — "
-                        f"loss {loss.item() * accum:.4f}"
+                        f"loss {unscaled_loss:.4f}"
                     )
 
                 if self.progress_fn is not None:

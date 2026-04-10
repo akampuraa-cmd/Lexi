@@ -16,7 +16,8 @@ import torch
 import torch.nn.functional as F
 import tiktoken
 
-from model import DEVICE, LexiModel
+from device_manager import DEVICE
+from model import LexiModel
 
 
 class Generator:

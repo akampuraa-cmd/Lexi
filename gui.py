@@ -4,11 +4,12 @@ gui.py — Lexi Native Windows GUI (PyQt6)
 Provides the main application window with four tabs:
 
 1. **Chat / Interaction** — talk to the trained Lexi model.
-2. **Data Feeding** — load local ``.txt`` files into the training corpus.
+2. **Data Feeding** — load local files (.txt, .json, .jsonl, .csv) or
+   paste text directly into the training corpus.
 3. **Web Scraping** — enter a URL, scrape & clean text, preview it,
    and optionally add it to the corpus.
-4. **Training / Settings** — configure hyperparameters, view hardware
-   status, and start / stop training.
+4. **Training / Settings** — configure hyperparameters for pre-training
+   or fine-tuning, view hardware status, and start / stop training.
 
 Threading strategy
 ~~~~~~~~~~~~~~~~~~
@@ -16,16 +17,6 @@ Heavy work (web scraping, training) is offloaded to ``QThread``
 workers so the Qt event loop stays responsive.  Communication
 between threads and the GUI uses Qt **signals & slots**, which are
 thread-safe by design.
-
-PyQt6 event-loop primer
-~~~~~~~~~~~~~~~~~~~~~~~
-* ``QApplication.exec()`` starts the event loop — it processes user
-  events (clicks, key-presses) and timer / socket events in a
-  blocking loop.
-* **Signals** are emitted by widgets (e.g. ``clicked``) and connected
-  to **slots** (any Python callable).
-* Long-running callables must *not* run on the GUI thread, or the
-  window freezes.  Hence we use ``QThread`` + signal bridges.
 """
 
 from __future__ import annotations
@@ -38,7 +29,10 @@ import tiktoken
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtWidgets import (
     QApplication,
+    QCheckBox,
+    QComboBox,
     QFileDialog,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -55,8 +49,10 @@ from PyQt6.QtWidgets import (
 )
 
 from data_cleaner import DataCleaner
+from data_pipeline import SUPPORTED_EXTENSIONS, load_file
+from device_manager import DEVICE, get_device_summary
 from generator import Generator
-from model import DEVICE, LexiConfig, LexiModel
+from model import LexiConfig, LexiModel
 from scraper import scrape_url
 from train import Trainer, TrainConfig
 
@@ -137,10 +133,11 @@ class LexiMainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Lexi AI")
-        self.setMinimumSize(800, 600)
+        self.setMinimumSize(900, 650)
 
         # Shared state -------------------------------------------------------
         self.corpus: str = ""               # accumulated training text
+        self._data_sources_loaded: int = 0  # number of data sources loaded
         self.trainer: Trainer | None = None
         self.generator: Generator | None = None
         self._train_worker: TrainWorker | None = None
@@ -222,46 +219,119 @@ class LexiMainWindow(QMainWindow):
         """Build the Data Feeding tab widget.
 
         Layout:
-        - A button to browse for .txt files.
+        - A button to browse for data files (.txt, .json, .jsonl, .csv).
         - A preview of the cleaned text.
         - A label showing corpus stats.
         """
         w = QWidget()
         layout = QVBoxLayout(w)
 
-        btn = QPushButton("📁 Load Text File(s)…")
+        btn_row = QHBoxLayout()
+        btn = QPushButton("📁 Load Data File(s)…")
+        btn.setToolTip("Supported: .txt, .json, .jsonl, .csv")
         btn.clicked.connect(self._on_load_files)
-        layout.addWidget(btn)
+        btn_row.addWidget(btn)
+
+        paste_btn = QPushButton("📋 Paste Text")
+        paste_btn.setToolTip("Paste text directly into the training corpus")
+        paste_btn.clicked.connect(self._on_paste_text)
+        btn_row.addWidget(paste_btn)
+
+        clear_btn = QPushButton("🗑 Clear Corpus")
+        clear_btn.clicked.connect(self._on_clear_corpus)
+        btn_row.addWidget(clear_btn)
+
+        layout.addLayout(btn_row)
 
         self.data_preview = QPlainTextEdit()
         self.data_preview.setReadOnly(True)
-        self.data_preview.setPlaceholderText("Cleaned text preview…")
+        self.data_preview.setPlaceholderText(
+            "Loaded data preview…\n\n"
+            "Supported formats:\n"
+            "  • .txt  — plain text\n"
+            "  • .json — JSON array/object with prompt/completion pairs\n"
+            "  • .jsonl — one JSON object per line\n"
+            "  • .csv  — CSV with header row\n\n"
+            "For fine-tuning, use files with paired columns:\n"
+            "  prompt/completion, input/output, question/answer, instruction/response"
+        )
         layout.addWidget(self.data_preview)
 
-        self.corpus_label = QLabel("Corpus: 0 characters")
+        self.corpus_label = QLabel("Corpus: 0 characters | 0 files loaded")
         layout.addWidget(self.corpus_label)
 
         return w
 
     def _on_load_files(self) -> None:
         """Open a file dialog, clean each file, and append to corpus."""
+        ext_filter = (
+            "All Supported (*.txt *.json *.jsonl *.csv);;"
+            "Text Files (*.txt);;"
+            "JSON Files (*.json);;"
+            "JSONL Files (*.jsonl);;"
+            "CSV Files (*.csv);;"
+            "All Files (*)"
+        )
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Select text files", "", "Text Files (*.txt);;All Files (*)"
+            self, "Select data files", "", ext_filter
         )
         if not paths:
             return
 
         for p in paths:
-            raw = Path(p).read_text(encoding="utf-8", errors="replace")
-            cleaned = DataCleaner.clean(raw)
-            if cleaned:
-                self.corpus += " " + cleaned
+            try:
+                loaded = load_file(p)
+                if loaded.text:
+                    self.corpus += " " + loaded.text
+                    self._data_sources_loaded += 1
+                    self.data_preview.appendPlainText(
+                        f"--- {os.path.basename(p)} [{loaded.format}] "
+                        f"({loaded.num_samples} samples) ---\n"
+                        f"{loaded.text[:500]}…\n"
+                    )
+            except Exception as exc:
                 self.data_preview.appendPlainText(
-                    f"--- {os.path.basename(p)} ---\n{cleaned[:500]}…\n"
+                    f"⚠ Error loading {os.path.basename(p)}: {exc}\n"
                 )
 
         self.corpus = self.corpus.strip()
-        self.corpus_label.setText(f"Corpus: {len(self.corpus):,} characters")
+        self._update_corpus_label()
+
+    def _on_paste_text(self) -> None:
+        """Open a dialog to paste text directly."""
+        from PyQt6.QtWidgets import QInputDialog
+        text, ok = QInputDialog.getMultiLineText(
+            self, "Paste Training Text", "Enter or paste text below:"
+        )
+        if ok and text.strip():
+            cleaned = DataCleaner.clean(text)
+            self.corpus += " " + cleaned
+            self.corpus = self.corpus.strip()
+            self._data_sources_loaded += 1
+            self.data_preview.appendPlainText(
+                f"--- [pasted text] ---\n{cleaned[:500]}…\n"
+            )
+            self._update_corpus_label()
+
+    def _on_clear_corpus(self) -> None:
+        """Clear all loaded data."""
+        if not self.corpus:
+            return
+        reply = QMessageBox.question(
+            self, "Clear Corpus",
+            "Are you sure you want to clear all loaded training data?",
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.corpus = ""
+            self._data_sources_loaded = 0
+            self.data_preview.clear()
+            self._update_corpus_label()
+
+    def _update_corpus_label(self) -> None:
+        self.corpus_label.setText(
+            f"Corpus: {len(self.corpus):,} characters | "
+            f"{self._data_sources_loaded} source(s) loaded"
+        )
 
     # ====================================================================
     # TAB 3 — Web Scraping
@@ -326,7 +396,8 @@ class LexiMainWindow(QMainWindow):
 
         self.corpus += " " + text
         self.corpus = self.corpus.strip()
-        self.corpus_label.setText(f"Corpus: {len(self.corpus):,} characters")
+        self._data_sources_loaded += 1
+        self._update_corpus_label()
         QMessageBox.information(
             self, "Added", "Scraped text has been added to the training corpus."
         )
@@ -338,21 +409,75 @@ class LexiMainWindow(QMainWindow):
         """Build the Training / Settings tab.
 
         Layout:
-        - Device status label.
-        - Hyperparameter controls (batch size, learning rate, epochs,
-          context length).
+        - Hardware info panel.
+        - Training mode selector (pre-training vs fine-tuning).
+        - Hyperparameter controls.
+        - Fine-tuning specific controls.
         - Start / Stop training buttons.
         - A log output area and a progress bar.
         """
         w = QWidget()
         layout = QVBoxLayout(w)
 
-        # Device info
-        device_label = QLabel(f"Device: {DEVICE}")
-        device_label.setStyleSheet("font-weight: bold;")
-        layout.addWidget(device_label)
+        # ----- Hardware info -----------------------------------------------
+        hw_group = QGroupBox("🖥 Hardware Detection")
+        hw_layout = QVBoxLayout(hw_group)
+        hw_text = QPlainTextEdit()
+        hw_text.setReadOnly(True)
+        hw_text.setMaximumHeight(110)
+        hw_text.setPlainText(get_device_summary())
+        hw_layout.addWidget(hw_text)
+        layout.addWidget(hw_group)
+
+        # ----- Training mode -----------------------------------------------
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel("Training Mode:"))
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems(["Pre-training (from scratch)", "Fine-tuning (from checkpoint)"])
+        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        mode_row.addWidget(self.mode_combo)
+        layout.addLayout(mode_row)
+
+        # ----- Checkpoint loading (for fine-tuning) -------------------------
+        self.ft_group = QGroupBox("Fine-Tuning Settings")
+        ft_layout = QVBoxLayout(self.ft_group)
+
+        ckpt_row = QHBoxLayout()
+        ckpt_row.addWidget(QLabel("Base Checkpoint:"))
+        self.ckpt_path_edit = QLineEdit()
+        self.ckpt_path_edit.setPlaceholderText("Path to .pt checkpoint file…")
+        ckpt_row.addWidget(self.ckpt_path_edit)
+        ckpt_browse = QPushButton("Browse…")
+        ckpt_browse.clicked.connect(self._on_browse_checkpoint)
+        ckpt_row.addWidget(ckpt_browse)
+        ft_layout.addLayout(ckpt_row)
+
+        freeze_row = QHBoxLayout()
+        freeze_row.addWidget(QLabel("Freeze First N Layers:"))
+        self.spin_freeze = QSpinBox()
+        self.spin_freeze.setRange(0, 12)
+        self.spin_freeze.setValue(2)
+        self.spin_freeze.setToolTip(
+            "Freeze the first N transformer blocks (and embeddings) "
+            "so only later layers are updated."
+        )
+        freeze_row.addWidget(self.spin_freeze)
+
+        freeze_row.addWidget(QLabel("Fine-Tune LR:"))
+        self.spin_ft_lr = QDoubleSpinBox()
+        self.spin_ft_lr.setDecimals(7)
+        self.spin_ft_lr.setRange(1e-7, 1e-2)
+        self.spin_ft_lr.setSingleStep(1e-5)
+        self.spin_ft_lr.setValue(1e-5)
+        freeze_row.addWidget(self.spin_ft_lr)
+        ft_layout.addLayout(freeze_row)
+
+        self.ft_group.setVisible(False)
+        layout.addWidget(self.ft_group)
 
         # ----- Hyperparameters row -----------------------------------------
+        hp_group = QGroupBox("Hyperparameters")
+        hp_layout = QVBoxLayout(hp_group)
         hp_row = QHBoxLayout()
 
         hp_row.addWidget(QLabel("Batch Size:"))
@@ -382,7 +507,32 @@ class LexiMainWindow(QMainWindow):
         self.spin_ctx.setValue(256)
         hp_row.addWidget(self.spin_ctx)
 
-        layout.addLayout(hp_row)
+        hp_layout.addLayout(hp_row)
+
+        # Advanced settings row
+        adv_row = QHBoxLayout()
+
+        adv_row.addWidget(QLabel("Grad Accum Steps:"))
+        self.spin_accum = QSpinBox()
+        self.spin_accum.setRange(1, 64)
+        self.spin_accum.setValue(1)
+        self.spin_accum.setToolTip(
+            "Gradient accumulation steps. Effective batch = batch_size × accum steps."
+        )
+        adv_row.addWidget(self.spin_accum)
+
+        adv_row.addWidget(QLabel("Warmup Steps:"))
+        self.spin_warmup = QSpinBox()
+        self.spin_warmup.setRange(0, 10000)
+        self.spin_warmup.setValue(100)
+        adv_row.addWidget(self.spin_warmup)
+
+        self.chk_cosine = QCheckBox("Cosine LR Schedule")
+        self.chk_cosine.setChecked(True)
+        adv_row.addWidget(self.chk_cosine)
+
+        hp_layout.addLayout(adv_row)
+        layout.addWidget(hp_group)
 
         # ----- Buttons ------------------------------------------------------
         btn_row = QHBoxLayout()
@@ -410,6 +560,17 @@ class LexiMainWindow(QMainWindow):
 
         return w
 
+    def _on_mode_changed(self, index: int) -> None:
+        """Toggle fine-tuning controls visibility."""
+        self.ft_group.setVisible(index == 1)
+
+    def _on_browse_checkpoint(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select checkpoint", "", "PyTorch Checkpoints (*.pt);;All Files (*)"
+        )
+        if path:
+            self.ckpt_path_edit.setText(path)
+
     # ----- Training controls ------------------------------------------------
 
     def _on_start_training(self) -> None:
@@ -420,14 +581,41 @@ class LexiMainWindow(QMainWindow):
             )
             return
 
+        is_fine_tune = self.mode_combo.currentIndex() == 1
+
         tc = TrainConfig(
             batch_size=self.spin_batch.value(),
             learning_rate=self.spin_lr.value(),
             epochs=self.spin_epochs.value(),
             context_length=self.spin_ctx.value(),
+            fine_tune=is_fine_tune,
+            freeze_layers=self.spin_freeze.value() if is_fine_tune else 0,
+            fine_tune_lr=self.spin_ft_lr.value(),
+            warmup_steps=self.spin_warmup.value(),
+            use_cosine_schedule=self.chk_cosine.isChecked(),
+            gradient_accumulation_steps=self.spin_accum.value(),
         )
 
         self.trainer = Trainer(train_config=tc)
+
+        # Load checkpoint for fine-tuning
+        if is_fine_tune:
+            ckpt_path = self.ckpt_path_edit.text().strip()
+            if not ckpt_path or not Path(ckpt_path).exists():
+                QMessageBox.warning(
+                    self, "No Checkpoint",
+                    "Please select a valid .pt checkpoint file for fine-tuning."
+                )
+                return
+            try:
+                self.trainer.load_checkpoint(ckpt_path)
+            except Exception as exc:
+                QMessageBox.critical(
+                    self, "Checkpoint Error",
+                    f"Failed to load checkpoint:\n{exc}"
+                )
+                return
+
         self.train_log.clear()
         self.progress_bar.setValue(0)
 
